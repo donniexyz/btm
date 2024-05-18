@@ -56,8 +56,8 @@
     </developers>
 
     <properties>
-        <revision>3.0.0-SNAPSHOT</revision>
-        <java.version>17</java.version>
+        <revision>3.0.0-donniexyz_1_8dbd9b</revision>
+        <java.version>21</java.version>
         <maven.compiler.source>${java.version}</maven.compiler.source>
         <maven.compiler.target>${java.version}</maven.compiler.target>
 
@@ -413,9 +413,9 @@
         </profile>
         <!-- the latest JDK version -->
         <profile>
-            <id>java20</id>
+            <id>java21</id>
             <properties>
-                <java.version>20</java.version>
+                <java.version>21</java.version>
             </properties>
         </profile>
     </profiles>

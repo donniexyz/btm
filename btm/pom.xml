@@ -88,6 +88,8 @@
                 <configuration>
                     <compilerArgument>-Xbootclasspath/a:${project.basedir}/src/main/jar/jdbc-4.0-overlay.jar
                     </compilerArgument>
+                    <source>${java.version}</source>
+                    <target>${java.version}</target>
                 </configuration>
             </plugin>
             <plugin>
