@@ -35,12 +35,16 @@
     </licenses>
 
     <scm>
-        <url>git@github.com:laingke/btm.git</url>
-        <connection>scm:git:git@github.com/laingke/btm.git</connection>
-        <developerConnection>scm:git:git@github.com:laingke/btm.git</developerConnection>
+        <url>git@github.com:donniexyz/btm.git</url>
+        <connection>scm:git:git@github.com/donniexyz/btm.git</connection>
+        <developerConnection>scm:git:git@github.com:donniexyz/btm.git</developerConnection>
     </scm>
 
     <developers>
+        <developer>
+            <id>donnie xyz</id>
+            <name>Dony Zulkarnaen</name>
+        </developer>
         <developer>
             <id>laingke</id>
             <name>Laing Ke</name>

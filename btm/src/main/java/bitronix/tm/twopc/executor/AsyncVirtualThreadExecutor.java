@@ -16,24 +16,22 @@
 package bitronix.tm.twopc.executor;
 
 import bitronix.tm.internal.BitronixRuntimeException;
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
 import java.util.concurrent.*;
 
 /**
- * This implementation executes submitted jobs using a <code>java.util.concurrent</code> cached thread pool.
+ * This implementation executes submitted jobs using a <code>java.util.concurrent</code> virtual thread.
  *
- * @author Ludovic Orban
+ * @author Dony Zulkarnaen
  */
-public class AsyncExecutor implements Executor {
+public class AsyncVirtualThreadExecutor implements Executor {
 
     private final ExecutorService executorService;
 
 
-    public AsyncExecutor() {
-        ThreadFactory namedThreadFactory = new ThreadFactoryBuilder()
-                .setNameFormat("async-executor-pool-%d").build();
-        executorService = Executors.newCachedThreadPool(namedThreadFactory);
+    public AsyncVirtualThreadExecutor() {
+        ThreadFactory namedThreadFactory = Thread.ofVirtual().name("btm-virt-").factory();
+        executorService = Executors.newThreadPerTaskExecutor(namedThreadFactory);
     }
 
     @Override

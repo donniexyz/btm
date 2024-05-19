@@ -42,6 +42,7 @@ import java.util.concurrent.atomic.AtomicReference;
  *
  * @author Ludovic Orban
  */
+@SuppressWarnings({"unused", "UnusedReturnValue"})
 public class Configuration implements Service {
 
     private static final Logger log = LoggerFactory.getLogger(Configuration.class);
@@ -59,6 +60,7 @@ public class Configuration implements Service {
     private volatile boolean filterLogStatus;
     private volatile boolean skipCorruptedLogs;
     private volatile boolean asynchronous2Pc;
+    private volatile boolean asynchronous2PcUseVirtualThread;
     private volatile boolean warnAboutZeroResourceTransaction;
     private volatile boolean debugZeroResourceTransaction;
     private volatile Duration defaultTransactionTimeout;
@@ -114,6 +116,7 @@ public class Configuration implements Service {
             filterLogStatus = getBoolean(properties, "bitronix.tm.journal.disk.filterLogStatus", false);
             skipCorruptedLogs = getBoolean(properties, "bitronix.tm.journal.disk.skipCorruptedLogs", false);
             asynchronous2Pc = getBoolean(properties, "bitronix.tm.2pc.async", false);
+            asynchronous2PcUseVirtualThread = getBoolean(properties, "bitronix.tm.2pc.async.virtualThread", false);
             warnAboutZeroResourceTransaction = getBoolean(properties, "bitronix.tm.2pc.warnAboutZeroResourceTransactions", true);
             debugZeroResourceTransaction = getBoolean(properties, "bitronix.tm.2pc.debugZeroResourceTransactions", false);
             defaultTransactionTimeout = getDuration(properties, "bitronix.tm.timer.defaultTransactionTimeout", Duration.ofSeconds(60L));
@@ -353,6 +356,29 @@ public class Configuration implements Service {
     public Configuration setAsynchronous2Pc(boolean asynchronous2Pc) {
         checkNotStarted();
         this.asynchronous2Pc = asynchronous2Pc;
+        return this;
+    }
+
+    /**
+     * Should asynchronous two phase commit use virtual thread ?
+     * <p>Property name:<br><b>bitronix.tm.2pc.async.virtualThread -</b> <i>(defaults to false)</i></p>
+     *
+     * @return true if asynchronous two phase commit to use virtual thread.
+     */
+    public boolean isAsynchronous2PcUseVirtualThread() {
+        return asynchronous2PcUseVirtualThread;
+    }
+
+    /**
+     * Set if two phase commit should be executed asynchronously using virtual thread.
+     *
+     * @param asynchronous2PcUseVirtualThread true if two phase commit should be executed asynchronously using virtual thread.
+     * @return this.
+     * @see #isAsynchronous2Pc()
+     */
+    public Configuration isAsynchronous2PcUseVirtualThread(boolean asynchronous2PcUseVirtualThread) {
+        checkNotStarted();
+        this.asynchronous2PcUseVirtualThread = asynchronous2PcUseVirtualThread;
         return this;
     }
 

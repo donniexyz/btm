@@ -23,6 +23,12 @@ This Bitronix Transaction Manager (BTM) is a new refactor from [BTM 3.0](https:/
 - [ ] Demos, testcases and diagrams. Performance report and comparative report on similar projects.
 - [x] Build automation workflow.
 
+### Roadmap of https://github.com/donniexyz/btm
+- [x] Support Virtual Thread on async executions.
+  - To use virtual thread on 2 phase commit, set on bitronix-xxx.properties:
+    - bitronix.tm.2pc.async=true
+    - bitronix.tm.2pc.async.virtualThread=true
+
 #### Original General Information ####
 * [Overview](https://github.com/bitronix/btm/wiki/Overview)
 * [FAQ](https://github.com/bitronix/btm/wiki/FAQ)

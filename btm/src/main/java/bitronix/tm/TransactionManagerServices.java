@@ -22,6 +22,7 @@ import bitronix.tm.recovery.Recoverer;
 import bitronix.tm.resource.ResourceLoader;
 import bitronix.tm.timer.TaskScheduler;
 import bitronix.tm.twopc.executor.AsyncExecutor;
+import bitronix.tm.twopc.executor.AsyncVirtualThreadExecutor;
 import bitronix.tm.twopc.executor.Executor;
 import bitronix.tm.twopc.executor.SyncExecutor;
 import bitronix.tm.utils.ClassLoaderUtils;
@@ -199,10 +200,17 @@ public class TransactionManagerServices {
         Executor executor = executorRef.get();
         if (executor == null) {
             if (getConfiguration().isAsynchronous2Pc()) {
-                if (log.isDebugEnabled()) {
-                    log.debug("using AsyncExecutor");
+                if (getConfiguration().isAsynchronous2PcUseVirtualThread()) {
+                    if (log.isDebugEnabled()) {
+                        log.debug("using AsyncVirtualThreadExecutor");
+                    }
+                    executor = new AsyncVirtualThreadExecutor();
+                } else {
+                    if (log.isDebugEnabled()) {
+                        log.debug("using AsyncExecutor");
+                    }
+                    executor = new AsyncExecutor();
                 }
-                executor = new AsyncExecutor();
             } else {
                 if (log.isDebugEnabled()) {
                     log.debug("using SyncExecutor");
