@@ -60,7 +60,7 @@
     </developers>
 
     <properties>
-        <revision>3.0.0-donniexyz_1_8dbd9b</revision>
+        <revision>3.0.0-donniexyz_2_9dbaf1</revision>
         <java.version>21</java.version>
         <maven.compiler.source>${java.version}</maven.compiler.source>
         <maven.compiler.target>${java.version}</maven.compiler.target>
