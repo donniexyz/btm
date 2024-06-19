@@ -38,6 +38,8 @@ import java.io.IOException;
 import java.util.*;
 import java.util.Map.Entry;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Recovery process implementation. Here is Mike Spille's description of XA recovery:
@@ -85,6 +87,7 @@ public class Recoverer implements Runnable, Service, RecovererMBean {
 
     private final Map<String, XAResourceProducer> registeredResources = new HashMap<>();
     private final Map<String, Set<BitronixXid>> recoveredXidSets = new HashMap<>();
+    protected final Lock synchronizationLock = new ReentrantLock();
 
     private volatile Exception completionException;
     private volatile int committedCount;
@@ -128,7 +131,8 @@ public class Recoverer implements Runnable, Service, RecovererMBean {
             Map<Uid, JournalRecord> danglingRecords = TransactionManagerServices.getJournal().collectDanglingRecords();
 
             // Query resources from ResourceRegistrar
-            synchronized (ResourceRegistrar.class) {
+            synchronizationLock.lock();
+            try {
                 for (String name : ResourceRegistrar.getResourcesUniqueNames()) {
                     registeredResources.put(name, ResourceRegistrar.get(name));
                 }
@@ -136,6 +140,8 @@ public class Recoverer implements Runnable, Service, RecovererMBean {
                 if (TransactionManagerServices.isTransactionManagerRunning()) {
                     oldestTransactionTimestamp = TransactionManagerServices.getTransactionManager().getOldestInFlightTransactionTimestamp();
                 }
+            } finally {
+                synchronizationLock.unlock();
             }
 
             // 1. call recover on all known resources

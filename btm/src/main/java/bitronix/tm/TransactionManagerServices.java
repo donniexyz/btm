@@ -59,6 +59,7 @@ public class TransactionManagerServices {
     private static final AtomicReference<Recoverer> recovererRef = new AtomicReference<>();
     private static final AtomicReference<Executor> executorRef = new AtomicReference<>();
     private static final AtomicReference<ExceptionAnalyzer> exceptionAnalyzerRef = new AtomicReference<>();
+    private static final Lock synchronizationLock = new ReentrantLock();
 
     /**
      * Create an initialized transaction manager.
@@ -271,17 +272,21 @@ public class TransactionManagerServices {
     /**
      * Clear services references. Called at the end of the shutdown procedure.
      */
-    protected static synchronized void clear() {
-        transactionManager = null;
-
-        transactionSynchronizationRegistryRef.set(null);
-        configurationRef.set(null);
-        journalRef.set(null);
-        taskSchedulerRef.set(null);
-        resourceLoaderRef.set(null);
-        recovererRef.set(null);
-        executorRef.set(null);
-        exceptionAnalyzerRef.set(null);
+    protected static void clear() {
+        synchronizationLock.lock();
+        try {
+            transactionManager = null;
+            transactionSynchronizationRegistryRef.set(null);
+            configurationRef.set(null);
+            journalRef.set(null);
+            taskSchedulerRef.set(null);
+            resourceLoaderRef.set(null);
+            recovererRef.set(null);
+            executorRef.set(null);
+            exceptionAnalyzerRef.set(null);
+        } finally {
+            synchronizationLock.unlock();
+        }
     }
 
 }

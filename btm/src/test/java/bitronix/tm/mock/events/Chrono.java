@@ -15,6 +15,9 @@
  */
 package bitronix.tm.mock.events;
 
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
+
 /**
  *
  * @author Ludovic Orban
@@ -23,19 +26,24 @@ public class Chrono {
 
     private static long lastTime = 0;
     private static long counter = 0;
+    private static final Lock synchronizationLock = new ReentrantLock();
 
-    public synchronized static long getTime() {
-        long time = System.currentTimeMillis();
-        if (time <= lastTime) {
-            counter++;
-            time += counter;
-            lastTime += counter;
+    public static long getTime() {
+        synchronizationLock.lock();
+        try {
+            long time = System.currentTimeMillis();
+            if (time <= lastTime) {
+                counter++;
+                time += counter;
+                lastTime += counter;
+            } else {
+                counter = 0;
+                lastTime = time;
+            }
+            return time;
+        } finally {
+            synchronizationLock.unlock();
         }
-        else {
-            counter = 0;
-            lastTime = time;
-        }
-        return time;
     }
 
 }

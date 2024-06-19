@@ -33,6 +33,8 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.*;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Implementation of a JMS pooled connection wrapping vendor's {@link XAConnection} implementation.
@@ -43,6 +45,7 @@ import java.util.*;
 public class JmsPooledConnection extends AbstractXAStatefulHolder<JmsPooledConnection> implements JmsPooledConnectionMBean {
 
     private static final Logger log = LoggerFactory.getLogger(JmsPooledConnection.class);
+    protected final Lock synchronizationLock = new ReentrantLock();
 
     private volatile XAConnection xaConnection;
     private final PoolingConnectionFactory poolingConnectionFactory;
@@ -86,29 +89,42 @@ public class JmsPooledConnection extends AbstractXAStatefulHolder<JmsPooledConne
         return poolingConnectionFactory;
     }
 
-    public synchronized RecoveryXAResourceHolder createRecoveryXAResourceHolder() throws JMSException {
-        DualSessionWrapper dualSessionWrapper = new DualSessionWrapper(this, false, 0);
-        dualSessionWrapper.getSession(true); // force creation of XASession to allow access to XAResource
-        return new RecoveryXAResourceHolder(dualSessionWrapper);
+    public RecoveryXAResourceHolder createRecoveryXAResourceHolder() throws JMSException {
+        synchronizationLock.lock();
+        try {
+            DualSessionWrapper dualSessionWrapper = new DualSessionWrapper(this, false, 0);
+            dualSessionWrapper.getSession(true); // force creation of XASession to allow access to XAResource
+            return new RecoveryXAResourceHolder(dualSessionWrapper);
+        } finally {
+            synchronizationLock.unlock();
+        }
     }
 
     @Override
-    public synchronized void close() throws JMSException {
-        if (xaConnection != null) {
-            poolingConnectionFactory.unregister(this);
-            setState(State.CLOSED);
-            try {
-                xaConnection.close();
-            } finally {
-                xaConnection = null;
+    public void close() throws JMSException {
+        synchronizationLock.lock();
+        try {
+            if (xaConnection != null) {
+                poolingConnectionFactory.unregister(this);
+                setState(State.CLOSED);
+                try {
+                    xaConnection.close();
+                } finally {
+                    xaConnection = null;
+                }
             }
+        } finally {
+            synchronizationLock.unlock();
         }
     }
 
     @Override
     public List<DualSessionWrapper> getXAResourceHolders() {
-        synchronized (sessions) {
+        synchronizationLock.lock();
+        try {
             return new ArrayList<>(sessions);
+        } finally {
+            synchronizationLock.unlock();
         }
     }
 
@@ -174,7 +190,8 @@ public class JmsPooledConnection extends AbstractXAStatefulHolder<JmsPooledConne
     }
 
     private void closePendingSessions() {
-        synchronized (sessions) {
+        synchronizationLock.lock();
+        try {
             for (DualSessionWrapper dualSessionWrapper : sessions) {
                 if (dualSessionWrapper.getState() != State.ACCESSIBLE) {
                     continue;
@@ -189,11 +206,14 @@ public class JmsPooledConnection extends AbstractXAStatefulHolder<JmsPooledConne
                     log.warn("error closing pending session " + dualSessionWrapper, ex);
                 }
             }
+        } finally {
+            synchronizationLock.unlock();
         }
     }
 
     protected Session createSession(boolean transacted, int acknowledgeMode) throws JMSException {
-        synchronized (sessions) {
+        synchronizationLock.lock();
+        try {
             DualSessionWrapper sessionHandle = getNotAccessibleSession();
 
             if (sessionHandle == null) {
@@ -211,11 +231,14 @@ public class JmsPooledConnection extends AbstractXAStatefulHolder<JmsPooledConne
             }
 
             return sessionHandle;
+        } finally {
+            synchronizationLock.unlock();
         }
     }
 
     private DualSessionWrapper getNotAccessibleSession() {
-        synchronized (sessions) {
+        synchronizationLock.lock();
+        try {
             if (log.isDebugEnabled()) {
                 log.debug(sessions.size() + " session(s) open from " + this);
             }
@@ -225,6 +248,8 @@ public class JmsPooledConnection extends AbstractXAStatefulHolder<JmsPooledConne
                 }
             }
             return null;
+        } finally {
+            synchronizationLock.unlock();
         }
     }
 
@@ -253,12 +278,15 @@ public class JmsPooledConnection extends AbstractXAStatefulHolder<JmsPooledConne
 
     @Override
     public Collection<String> getTransactionGtridsCurrentlyHoldingThis() {
-        synchronized (sessions) {
+        synchronizationLock.lock();
+        try {
             Set<String> result = new HashSet<>();
             for (DualSessionWrapper dsw : sessions) {
                 result.addAll(dsw.getXAResourceHolderStateGtrids());
             }
             return result;
+        } finally {
+            synchronizationLock.unlock();
         }
     }
 
@@ -297,11 +325,14 @@ public class JmsPooledConnection extends AbstractXAStatefulHolder<JmsPooledConne
         @Override
         public void stateChanged(DualSessionWrapper source, State oldState, State newState) {
             if (newState == State.CLOSED) {
-                synchronized (sessions) {
+                synchronizationLock.lock();
+                try {
                     sessions.remove(source);
                     if (log.isDebugEnabled()) {
                         log.debug("DualSessionWrapper has been closed, " + sessions.size() + " session(s) left open in pooled connection");
                     }
+                } finally {
+                    synchronizationLock.unlock();
                 }
             }
         }
@@ -312,13 +343,16 @@ public class JmsPooledConnection extends AbstractXAStatefulHolder<JmsPooledConne
     }
 
     public DualSessionWrapper getXAResourceHolderForXaResource(XAResource xaResource) {
-        synchronized (sessions) {
+        synchronizationLock.lock();
+        try {
             for (DualSessionWrapper xaResourceHolder : sessions) {
                 if (xaResourceHolder.getXAResource() == xaResource) {
                     return xaResourceHolder;
                 }
             }
             return null;
+        } finally {
+            synchronizationLock.unlock();
         }
     }
 }

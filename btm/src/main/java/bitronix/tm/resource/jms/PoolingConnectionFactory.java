@@ -35,6 +35,8 @@ import javax.naming.StringRefAddr;
 import javax.transaction.xa.XAResource;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Implementation of a JMS {@link ConnectionFactory} wrapping vendor's {@link XAConnectionFactory} implementation.
@@ -45,6 +47,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 public class PoolingConnectionFactory extends ResourceBean implements ConnectionFactory, XAResourceProducer<DualSessionWrapper, JmsPooledConnection>, PoolingConnectionFactoryMBean {
 
     private static final Logger log = LoggerFactory.getLogger(PoolingConnectionFactory.class);
+    protected final Lock synchronizationLock = new ReentrantLock();
 
     private volatile transient XAPool<DualSessionWrapper, JmsPooledConnection> pool;
     private volatile transient XAConnectionFactory xaConnectionFactory;
@@ -67,7 +70,8 @@ public class PoolingConnectionFactory extends ResourceBean implements Connection
      * Initialize the pool by creating the initial amount of connections.
      */
     @Override
-    public synchronized void init() {
+    public void init() {
+        synchronizationLock.lock();
         try {
             if (pool != null) {
                 return;
@@ -78,6 +82,8 @@ public class PoolingConnectionFactory extends ResourceBean implements Connection
             ManagementRegistrar.register(jmxName, this);
         } catch (Exception ex) {
             throw new ResourceConfigurationException("cannot create JMS connection factory named " + getUniqueName(), ex);
+        } finally {
+            synchronizationLock.unlock();
         }
     }
 
@@ -317,7 +323,8 @@ public class PoolingConnectionFactory extends ResourceBean implements Connection
 
     @Override
     public DualSessionWrapper findXAResourceHolder(XAResource xaResource) {
-        synchronized (xaStatefulHolders) {
+        synchronizationLock.lock();
+        try {
             for (JmsPooledConnection jmsPooledConnection : xaStatefulHolders) {
                 DualSessionWrapper xaResourceHolder = jmsPooledConnection.getXAResourceHolderForXaResource(xaResource);
                 if (xaResourceHolder != null) {
@@ -325,6 +332,8 @@ public class PoolingConnectionFactory extends ResourceBean implements Connection
                 }
             }
             return null;
+        } finally {
+            synchronizationLock.unlock();
         }
     }
 

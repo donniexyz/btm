@@ -43,6 +43,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Implementation of a JDBC {@link DataSource} wrapping vendor's {@link XADataSource} implementation.
@@ -54,6 +56,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 public class PoolingDataSource extends ResourceBean implements DataSource, XAResourceProducer<JdbcPooledConnection, JdbcPooledConnection>, PoolingDataSourceMBean {
 
     private static final Logger log = LoggerFactory.getLogger(PoolingDataSource.class);
+    protected final Lock synchronizationLock = new ReentrantLock();
 
     private volatile transient XAPool<JdbcPooledConnection, JdbcPooledConnection> pool;
     private volatile transient XADataSource xaDataSource;
@@ -79,17 +82,22 @@ public class PoolingDataSource extends ResourceBean implements DataSource, XARes
      * Initializes the pool by creating the initial amount of connections.
      */
     @Override
-    public synchronized void init() {
-        if (this.pool != null) {
-            return;
-        }
-
+    public void init() {
+        synchronizationLock.lock();
         try {
-            buildXAPool();
-            this.jmxName = "bitronix.tm:type=JDBC,UniqueName=" + ManagementRegistrar.makeValidName(getUniqueName());
-            ManagementRegistrar.register(jmxName, this);
-        } catch (Exception ex) {
-            throw new ResourceConfigurationException("cannot create JDBC datasource named " + getUniqueName(), ex);
+            if (this.pool != null) {
+                return;
+            }
+
+            try {
+                buildXAPool();
+                this.jmxName = "bitronix.tm:type=JDBC,UniqueName=" + ManagementRegistrar.makeValidName(getUniqueName());
+                ManagementRegistrar.register(jmxName, this);
+            } catch (Exception ex) {
+                throw new ResourceConfigurationException("cannot create JDBC datasource named " + getUniqueName(), ex);
+            }
+        } finally {
+            synchronizationLock.unlock();
         }
     }
 

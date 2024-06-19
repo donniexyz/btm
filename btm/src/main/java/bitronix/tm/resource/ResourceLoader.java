@@ -31,6 +31,8 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.util.*;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * XA resources pools configurator &amp; loader.
@@ -49,6 +51,7 @@ public class ResourceLoader implements Service {
     private static final String JDBC_RESOURCE_CLASSNAME = "bitronix.tm.resource.jdbc.PoolingDataSource";
     private static final String JMS_RESOURCE_CLASSNAME = "bitronix.tm.resource.jms.PoolingConnectionFactory";
 
+    protected final Lock synchronizationLock = new ReentrantLock();
     private final Map<String, XAResourceProducer> resourcesByUniqueName = new HashMap<>();
 
     public ResourceLoader() {
@@ -86,23 +89,28 @@ public class ResourceLoader implements Service {
     }
 
     @Override
-    public synchronized void shutdown() {
-        if (log.isDebugEnabled()) {
-            log.debug("resource loader has registered {} resource(s), unregistering them now",
-                    resourcesByUniqueName.entrySet().size());
-        }
-        for (Map.Entry<String, XAResourceProducer> entry : resourcesByUniqueName.entrySet()) {
-            XAResourceProducer producer = entry.getValue();
+    public void shutdown() {
+        synchronizationLock.lock();
+        try {
             if (log.isDebugEnabled()) {
-                log.debug("closing {}", producer);
+                log.debug("resource loader has registered {} resource(s), unregistering them now",
+                        resourcesByUniqueName.entrySet().size());
             }
-            try {
-                producer.close();
-            } catch (Exception ex) {
-                log.warn("error closing resource " + producer, ex);
+            for (Map.Entry<String, XAResourceProducer> entry : resourcesByUniqueName.entrySet()) {
+                XAResourceProducer producer = entry.getValue();
+                if (log.isDebugEnabled()) {
+                    log.debug("closing {}", producer);
+                }
+                try {
+                    producer.close();
+                } catch (Exception ex) {
+                    log.warn("error closing resource " + producer, ex);
+                }
             }
+            resourcesByUniqueName.clear();
+        } finally {
+            synchronizationLock.unlock();
         }
-        resourcesByUniqueName.clear();
     }
 
     /*

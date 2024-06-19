@@ -28,6 +28,8 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Properties;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Configuration repository of the transaction manager. You can set configurable values either via the properties file
@@ -46,7 +48,10 @@ import java.util.concurrent.atomic.AtomicReference;
 public class Configuration implements Service {
 
     private static final Logger log = LoggerFactory.getLogger(Configuration.class);
-
+    // protected, so implementor classes relying on synchronized(this)
+    // or synchronized non-static methods can consistently use the same
+    // lock as the base class
+    protected final Lock synchronizationLock = new ReentrantLock();
     private static final int MAX_SERVER_ID_LENGTH = 51;
     private static final Charset SERVER_ID_CHARSET = StandardCharsets.US_ASCII;
 
@@ -772,7 +777,8 @@ public class Configuration implements Service {
         if (id == null) {
             // DCL is not a problem here, we just want to avoid multiple concurrent creations of the same array as it would look ugly in the logs.
             // More important is to avoid contended synchronizations when accessing this array as it is part of Uid creation happening when a TX is opened.
-            synchronized (this) {
+            synchronizationLock.lock();
+            try {
                 while ((id = serverIdArray.get()) == null) {
                     try {
                         id = serverId.getBytes(SERVER_ID_CHARSET);
@@ -811,6 +817,8 @@ public class Configuration implements Service {
                         log.info("JVM unique ID: <" + idAsString + "> - Using this server ID to ensure uniqueness of transaction IDs across the network.");
                     }
                 }
+            } finally {
+                synchronizationLock.unlock();
             }
         }
         return id;

@@ -39,6 +39,8 @@ import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
@@ -78,7 +80,7 @@ public class XAPool<R extends XAResourceHolder<R>, T extends XAStatefulHolder<T>
     private final XAResourceProducer<R, T> xaResourceProducer;
     private final Object xaFactory;
     private final AtomicBoolean failed = new AtomicBoolean();
-    private final Object poolGrowthShrinkLock = new Object();
+    private final Lock poolGrowthShrinkLock = new ReentrantLock();
 
     public XAPool(XAResourceProducer<R, T> xaResourceProducer, ResourceBean bean, Object xaFactory) throws Exception {
         this.xaResourceProducer = xaResourceProducer;
@@ -114,7 +116,8 @@ public class XAPool<R extends XAResourceHolder<R>, T extends XAStatefulHolder<T>
      * Close down and cleanup this XAPool instance.
      */
     public void close() {
-        synchronized (poolGrowthShrinkLock) {
+        poolGrowthShrinkLock.lock();
+        try {
             if (log.isDebugEnabled()) {
                 log.debug("closing all connections of " + this);
             }
@@ -142,6 +145,8 @@ public class XAPool<R extends XAResourceHolder<R>, T extends XAStatefulHolder<T>
             } finally {
                 stateTransitionLock.writeLock().unlock();
             }
+        } finally {
+            poolGrowthShrinkLock.unlock();
         }
     }
 
@@ -163,10 +168,13 @@ public class XAPool<R extends XAResourceHolder<R>, T extends XAStatefulHolder<T>
      * @throws Exception throw in the pool is unrecoverable or a timeout occurs getting a connection
      */
     public Object getConnectionHandle(boolean recycle) throws Exception {
-        synchronized (poolGrowthShrinkLock) {
+        poolGrowthShrinkLock.lock();
+        try {
             if (isFailed()) {
                 reinitializePool();
             }
+        } finally {
+            poolGrowthShrinkLock.unlock();
         }
 
         long remainingTimeMs = TimeUnit.SECONDS.toMillis(bean.getAcquisitionTimeout());
@@ -482,7 +490,8 @@ public class XAPool<R extends XAResourceHolder<R>, T extends XAStatefulHolder<T>
      * @throws Exception thrown if creating a pooled objects fails
      */
     private void grow() throws Exception {
-        synchronized (poolGrowthShrinkLock) {
+        poolGrowthShrinkLock.lock();
+        try {
             final long totalPoolSize = totalPoolSize();
             if (totalPoolSize < bean.getMaxPoolSize()) {
                 long increment = bean.getAcquireIncrement();
@@ -505,17 +514,22 @@ public class XAPool<R extends XAResourceHolder<R>, T extends XAStatefulHolder<T>
             if (totalPoolSize() < bean.getMinPoolSize()) {
                 growUntilMinPoolSize();
             }
+        } finally {
+            poolGrowthShrinkLock.unlock();
         }
     }
 
     private void growUntilMinPoolSize() throws Exception {
-        synchronized (poolGrowthShrinkLock) {
+        poolGrowthShrinkLock.lock();
+        try {
             if (log.isDebugEnabled()) {
                 log.debug("growing " + this + " to minimum pool size " + bean.getMinPoolSize());
             }
             for (int i = totalPoolSize(); i < bean.getMinPoolSize(); i++) {
                 createPooledObject(xaFactory);
             }
+        } finally {
+            poolGrowthShrinkLock.unlock();
         }
     }
 
@@ -536,7 +550,8 @@ public class XAPool<R extends XAResourceHolder<R>, T extends XAStatefulHolder<T>
     }
 
     public void shrink() throws Exception {
-        synchronized (poolGrowthShrinkLock) {
+        poolGrowthShrinkLock.lock();
+        try {
             if (log.isDebugEnabled()) {
                 log.debug("shrinking " + this);
             }
@@ -544,11 +559,14 @@ public class XAPool<R extends XAResourceHolder<R>, T extends XAStatefulHolder<T>
             if (log.isDebugEnabled()) {
                 log.debug("shrunk " + this);
             }
+        } finally {
+            poolGrowthShrinkLock.unlock();
         }
     }
 
     public void reset() throws Exception {
-        synchronized (poolGrowthShrinkLock) {
+        poolGrowthShrinkLock.lock();
+        try {
             if (log.isDebugEnabled()) {
                 log.debug("resetting " + this);
             }
@@ -556,6 +574,8 @@ public class XAPool<R extends XAResourceHolder<R>, T extends XAStatefulHolder<T>
             if (log.isDebugEnabled()) {
                 log.debug("reset " + this);
             }
+        } finally {
+            poolGrowthShrinkLock.unlock();
         }
     }
 

@@ -37,6 +37,8 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Implementation of {@link TransactionManager} and {@link UserTransaction}.
@@ -48,6 +50,7 @@ public class BitronixTransactionManager implements TransactionManager, UserTrans
     private static final Logger log = LoggerFactory.getLogger(BitronixTransactionManager.class);
     private static final String MDC_GTRID_KEY = "btm-gtrid";
 
+    protected final Lock synchronizationLock = new ReentrantLock();
     private final SortedMap<BitronixTransaction, ClearContextSynchronization> inFlightTransactions;
 
     private volatile boolean shuttingDown;
@@ -363,11 +366,14 @@ public class BitronixTransactionManager implements TransactionManager, UserTrans
         }
 
         // We're using an iterator, so we must synchronize on the collection
-        synchronized (inFlightTransactions) {
+        synchronizationLock.lock();
+        try {
             log.debug("dumping {} transaction context(s)", inFlightTransactions.size());
             for (BitronixTransaction tx : inFlightTransactions.keySet()) {
                 log.debug(tx.toString());
             }
+        } finally {
+            synchronizationLock.unlock();
         }
     }
 
@@ -383,52 +389,57 @@ public class BitronixTransactionManager implements TransactionManager, UserTrans
      * @see Configuration#getGracefulShutdownInterval()
      */
     @Override
-    public synchronized void shutdown() {
-        if (isShuttingDown()) {
-            if (log.isDebugEnabled()) {
-                log.debug("Transaction Manager has already shut down");
+    public void shutdown() {
+        synchronizationLock.lock();
+        try {
+            if (isShuttingDown()) {
+                if (log.isDebugEnabled()) {
+                    log.debug("Transaction Manager has already shut down");
+                }
+                return;
             }
-            return;
-        }
 
-        log.info("shutting down Bitronix Transaction Manager");
-        internalShutdown();
+            log.info("shutting down Bitronix Transaction Manager");
+            internalShutdown();
 
-        if (log.isDebugEnabled()) {
-            log.debug("shutting down resource loader");
-        }
-        TransactionManagerServices.getResourceLoader().shutdown();
+            if (log.isDebugEnabled()) {
+                log.debug("shutting down resource loader");
+            }
+            TransactionManagerServices.getResourceLoader().shutdown();
 
-        if (log.isDebugEnabled()) {
-            log.debug("shutting down executor");
-        }
-        TransactionManagerServices.getExecutor().shutdown();
+            if (log.isDebugEnabled()) {
+                log.debug("shutting down executor");
+            }
+            TransactionManagerServices.getExecutor().shutdown();
 
-        if (log.isDebugEnabled()) {
-            log.debug("shutting down task scheduler");
-        }
-        TransactionManagerServices.getTaskScheduler().shutdown();
+            if (log.isDebugEnabled()) {
+                log.debug("shutting down task scheduler");
+            }
+            TransactionManagerServices.getTaskScheduler().shutdown();
 
-        if (log.isDebugEnabled()) {
-            log.debug("shutting down journal");
-        }
-        TransactionManagerServices.getJournal().shutdown();
+            if (log.isDebugEnabled()) {
+                log.debug("shutting down journal");
+            }
+            TransactionManagerServices.getJournal().shutdown();
 
-        if (log.isDebugEnabled()) {
-            log.debug("shutting down recoverer");
-        }
-        TransactionManagerServices.getRecoverer().shutdown();
+            if (log.isDebugEnabled()) {
+                log.debug("shutting down recoverer");
+            }
+            TransactionManagerServices.getRecoverer().shutdown();
 
-        if (log.isDebugEnabled()) {
-            log.debug("shutting down configuration");
-        }
-        TransactionManagerServices.getConfiguration().shutdown();
+            if (log.isDebugEnabled()) {
+                log.debug("shutting down configuration");
+            }
+            TransactionManagerServices.getConfiguration().shutdown();
 
-        // clear references
-        TransactionManagerServices.clear();
+            // clear references
+            TransactionManagerServices.clear();
 
-        if (log.isDebugEnabled()) {
-            log.debug("shutdown ran successfully");
+            if (log.isDebugEnabled()) {
+                log.debug("shutdown ran successfully");
+            }
+        } finally {
+            synchronizationLock.unlock();
         }
     }
 

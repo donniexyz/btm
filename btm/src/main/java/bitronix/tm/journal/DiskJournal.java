@@ -71,7 +71,8 @@ public class DiskJournal implements Journal, MigratableJournal, ReadableJournal 
 
     private final Lock conservativeJournalingLock = new ReentrantLock();
     private final ReadWriteLock swapForceLock = new ReentrantReadWriteLock(true);
-    private final Object positionLock = new Object();
+    private final Lock positionLock = new ReentrantLock();
+    protected final Lock synchronizationLock = new ReentrantLock();
     private final AtomicBoolean needsForce;
 
     private final Configuration configuration;
@@ -117,7 +118,8 @@ public class DiskJournal implements Journal, MigratableJournal, ReadableJournal 
                 conservativeJournalingLock.lock();
             }
 
-            synchronized (positionLock) {
+            positionLock.lock();
+            try {
                 boolean rollover = activeTla.get().setPositionAndAdvance(tlog);
                 if (rollover) {
                     // time to swap log files
@@ -132,6 +134,8 @@ public class DiskJournal implements Journal, MigratableJournal, ReadableJournal 
 
                 // this read lock MUST be acquired under positionLock
                 swapForceLock.readLock().lock();
+            } finally {
+                positionLock.unlock();
             }
 
             try {
@@ -176,52 +180,57 @@ public class DiskJournal implements Journal, MigratableJournal, ReadableJournal 
      * @throws java.io.IOException in case of disk IO failure.
      */
     @Override
-    public synchronized void open() throws IOException {
-        if (activeTla.get() != null) {
-            log.warn("disk journal already open");
-            return;
-        }
-
-        File file1 = new File(configuration.getLogPart1Filename());
-        File file2 = new File(configuration.getLogPart2Filename());
-
-        if (!file1.exists() && !file2.exists()) {
-            log.debug("creation of log files");
-            createLogfile(file2, configuration.getMaxLogSizeInMb());
-
-            // make the clock run a little before creating the 2nd log file to ensure the timestamp headers are not the same
-            long before = MonotonicClock.currentTimeMillis();
-            while (MonotonicClock.currentTimeMillis() < before + 100L) {
-                try {
-                    Thread.sleep(100);
-                } catch (InterruptedException ex) { /* ignore */ }
+    public void open() throws IOException {
+        synchronizationLock.lock();
+        try {
+            if (activeTla.get() != null) {
+                log.warn("disk journal already open");
+                return;
             }
 
-            createLogfile(file1, configuration.getMaxLogSizeInMb());
-        }
+            File file1 = new File(configuration.getLogPart1Filename());
+            File file2 = new File(configuration.getLogPart2Filename());
 
-        if (file1.length() != file2.length()) {
-            if (!configuration.isSkipCorruptedLogs()) {
-                throw new IOException("transaction log files are not of the same length, assuming they're corrupt");
+            if (!file1.exists() && !file2.exists()) {
+                log.debug("creation of log files");
+                createLogfile(file2, configuration.getMaxLogSizeInMb());
+
+                // make the clock run a little before creating the 2nd log file to ensure the timestamp headers are not the same
+                long before = MonotonicClock.currentTimeMillis();
+                while (MonotonicClock.currentTimeMillis() < before + 100L) {
+                    try {
+                        Thread.sleep(100);
+                    } catch (InterruptedException ex) { /* ignore */ }
+                }
+
+                createLogfile(file1, configuration.getMaxLogSizeInMb());
             }
-            log.error("transaction log files are not of the same length: corrupted files?");
-        }
 
-        long maxFileLength = Math.max(file1.length(), file2.length());
-        if (log.isDebugEnabled()) {
-            log.debug("disk journal files max length: {}", maxFileLength);
-        }
+            if (file1.length() != file2.length()) {
+                if (!configuration.isSkipCorruptedLogs()) {
+                    throw new IOException("transaction log files are not of the same length, assuming they're corrupt");
+                }
+                log.error("transaction log files are not of the same length: corrupted files?");
+            }
 
-        tla1 = new TransactionLogAppender(file1, maxFileLength);
-        tla2 = new TransactionLogAppender(file2, maxFileLength);
+            long maxFileLength = Math.max(file1.length(), file2.length());
+            if (log.isDebugEnabled()) {
+                log.debug("disk journal files max length: {}", maxFileLength);
+            }
 
-        byte cleanStatus = pickActiveJournalFile(tla1, tla2);
-        if (cleanStatus != TransactionLogHeader.CLEAN_LOG_STATE) {
-            log.warn("active log file is unclean, did you call BitronixTransactionManager.shutdown() at the end of the last run?");
-        }
+            tla1 = new TransactionLogAppender(file1, maxFileLength);
+            tla2 = new TransactionLogAppender(file2, maxFileLength);
 
-        if (log.isDebugEnabled()) {
-            log.debug("disk journal opened");
+            byte cleanStatus = pickActiveJournalFile(tla1, tla2);
+            if (cleanStatus != TransactionLogHeader.CLEAN_LOG_STATE) {
+                log.warn("active log file is unclean, did you call BitronixTransactionManager.shutdown() at the end of the last run?");
+            }
+
+            if (log.isDebugEnabled()) {
+                log.debug("disk journal opened");
+            }
+        } finally {
+            synchronizationLock.unlock();
         }
     }
 
@@ -231,27 +240,32 @@ public class DiskJournal implements Journal, MigratableJournal, ReadableJournal 
      * @throws java.io.IOException in case of disk IO failure.
      */
     @Override
-    public synchronized void close() throws IOException {
-        if (activeTla.get() == null) {
-            return;
-        }
-
+    public void close() throws IOException {
+        synchronizationLock.lock();
         try {
-            tla1.close();
-        } catch (IOException ex) {
-            log.error("cannot close " + tla1, ex);
-        }
-        tla1 = null;
-        try {
-            tla2.close();
-        } catch (IOException ex) {
-            log.error("cannot close " + tla2, ex);
-        }
-        tla2 = null;
-        activeTla.set(null);
+            if (activeTla.get() == null) {
+                return;
+            }
 
-        if (log.isDebugEnabled()) {
-            log.debug("disk journal closed");
+            try {
+                tla1.close();
+            } catch (IOException ex) {
+                log.error("cannot close " + tla1, ex);
+            }
+            tla1 = null;
+            try {
+                tla2.close();
+            } catch (IOException ex) {
+                log.error("cannot close " + tla2, ex);
+            }
+            tla2 = null;
+            activeTla.set(null);
+
+            if (log.isDebugEnabled()) {
+                log.debug("disk journal closed");
+            }
+        } finally {
+            synchronizationLock.unlock();
         }
     }
 
@@ -299,13 +313,18 @@ public class DiskJournal implements Journal, MigratableJournal, ReadableJournal 
      * {@inheritDoc}
      */
     @Override
-    public synchronized void unsafeReadRecordsInto(Collection<JournalRecord> target, boolean includeInvalid) throws IOException {
-        if (activeTla.get() == null) {
-            throw new IOException("cannot read records, disk logger is not open");
-        }
+    public void unsafeReadRecordsInto(Collection<JournalRecord> target, boolean includeInvalid) throws IOException {
+        synchronizationLock.lock();
+        try {
+            if (activeTla.get() == null) {
+                throw new IOException("cannot read records, disk logger is not open");
+            }
 
-        for (Iterator<TransactionLogRecord> i = iterateRecords(activeTla.get(), includeInvalid); i.hasNext(); ) {
-            target.add(i.next());
+            for (Iterator<TransactionLogRecord> i = iterateRecords(activeTla.get(), includeInvalid); i.hasNext(); ) {
+                target.add(i.next());
+            }
+        } finally {
+            synchronizationLock.unlock();
         }
     }
 
@@ -360,26 +379,31 @@ public class DiskJournal implements Journal, MigratableJournal, ReadableJournal 
      * @throws java.io.IOException in case of disk IO failure.
      * @see TransactionLogHeader
      */
-    private synchronized byte pickActiveJournalFile(TransactionLogAppender tla1, TransactionLogAppender tla2) throws IOException {
-        if (tla1.getTimestamp() > tla2.getTimestamp()) {
-            activeTla.set(tla1);
-            if (log.isDebugEnabled()) {
-                log.debug("logging to file 1: {}", activeTla);
+    private byte pickActiveJournalFile(TransactionLogAppender tla1, TransactionLogAppender tla2) throws IOException {
+        synchronizationLock.lock();
+        try {
+            if (tla1.getTimestamp() > tla2.getTimestamp()) {
+                activeTla.set(tla1);
+                if (log.isDebugEnabled()) {
+                    log.debug("logging to file 1: {}", activeTla);
+                }
+            } else {
+                activeTla.set(tla2);
+                if (log.isDebugEnabled()) {
+                    log.debug("logging to file 2: {}", activeTla);
+                }
             }
-        } else {
-            activeTla.set(tla2);
-            if (log.isDebugEnabled()) {
-                log.debug("logging to file 2: {}", activeTla);
-            }
-        }
 
-        byte cleanState = activeTla.get().getState();
-        activeTla.get().setState(TransactionLogHeader.UNCLEAN_LOG_STATE);
-        if (log.isDebugEnabled()) {
-            log.debug("log file activated, forcing file state to disk");
+            byte cleanState = activeTla.get().getState();
+            activeTla.get().setState(TransactionLogHeader.UNCLEAN_LOG_STATE);
+            if (log.isDebugEnabled()) {
+                log.debug("log file activated, forcing file state to disk");
+            }
+            activeTla.get().force();
+            return cleanState;
+        } finally {
+            synchronizationLock.unlock();
         }
-        activeTla.get().force();
-        return cleanState;
     }
 
 
@@ -397,44 +421,49 @@ public class DiskJournal implements Journal, MigratableJournal, ReadableJournal 
      *
      * @throws java.io.IOException in case of disk IO failure.
      */
-    private synchronized void swapJournalFiles() throws IOException {
-        if (log.isDebugEnabled()) {
-            log.debug("swapping journal log file to {}", getPassiveTransactionLogAppender());
-        }
-
-        //step 1
-        activeTla.get().force();
-
-        //step 2
-        TransactionLogAppender passiveTla = getPassiveTransactionLogAppender();
-        passiveTla.rewind();
-
-        List<TransactionLogRecord> danglingLogs = activeTla.get().getDanglingLogs();
-        for (TransactionLogRecord tlog : danglingLogs) {
-            boolean rolloverError = passiveTla.setPositionAndAdvance(tlog);
-            if (rolloverError) {
-                throw new IOException("moving in-flight transactions the rollover log file would have resulted in an overflow of that file");
+    private void swapJournalFiles() throws IOException {
+        synchronizationLock.lock();
+        try {
+            if (log.isDebugEnabled()) {
+                log.debug("swapping journal log file to {}", getPassiveTransactionLogAppender());
             }
-            passiveTla.writeLog(tlog);
-        }
 
-        if (log.isDebugEnabled()) {
-            log.debug("{} dangling record(s) copied to passive log file", danglingLogs.size());
-        }
+            //step 1
+            activeTla.get().force();
 
-        activeTla.get().clearDanglingLogs();
+            //step 2
+            TransactionLogAppender passiveTla = getPassiveTransactionLogAppender();
+            passiveTla.rewind();
 
-        //step 3
-        passiveTla.setTimestamp(MonotonicClock.currentTimeMillis());
+            List<TransactionLogRecord> danglingLogs = activeTla.get().getDanglingLogs();
+            for (TransactionLogRecord tlog : danglingLogs) {
+                boolean rolloverError = passiveTla.setPositionAndAdvance(tlog);
+                if (rolloverError) {
+                    throw new IOException("moving in-flight transactions the rollover log file would have resulted in an overflow of that file");
+                }
+                passiveTla.writeLog(tlog);
+            }
 
-        //step 4
-        passiveTla.force();
+            if (log.isDebugEnabled()) {
+                log.debug("{} dangling record(s) copied to passive log file", danglingLogs.size());
+            }
 
-        //step 5
-        activeTla.set(passiveTla);
+            activeTla.get().clearDanglingLogs();
 
-        if (log.isDebugEnabled()) {
-            log.debug("journal log files swapped");
+            //step 3
+            passiveTla.setTimestamp(MonotonicClock.currentTimeMillis());
+
+            //step 4
+            passiveTla.force();
+
+            //step 5
+            activeTla.set(passiveTla);
+
+            if (log.isDebugEnabled()) {
+                log.debug("journal log files swapped");
+            }
+        } finally {
+            synchronizationLock.unlock();
         }
     }
 
